@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotify Token Helper</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Manrope:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --bg:#0a0c12; --panel:#11141d; --accent:#7fd0c4; --text:#eef1f7; --muted:#8b93a7; --line:rgba(255,255,255,.08); }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'Manrope',sans-serif; background:
+      radial-gradient(90% 60% at 50% 0%, #16203a 0%, transparent 60%), var(--bg);
+      color:var(--text); min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px; }
+  .card{ width:100%; max-width:640px; background:var(--panel); border:1px solid var(--line);
+      border-radius:18px; padding:38px 40px; box-shadow:0 40px 90px -40px rgba(0,0,0,.8); }
+  h1{ font-family:'Cinzel',serif; font-weight:600; font-size:26px; letter-spacing:.02em; margin-bottom:6px; }
+  .sub{ color:var(--muted); font-size:14px; line-height:1.5; margin-bottom:28px; }
+  label{ display:block; font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin:18px 0 7px; }
+  input{ width:100%; background:#0b0e16; border:1px solid var(--line); border-radius:10px;
+      color:var(--text); padding:13px 14px; font-size:15px; font-family:inherit; }
+  input:focus{ outline:none; border-color:var(--accent); }
+  .hint{ font-size:12.5px; color:var(--muted); margin-top:7px; line-height:1.5; }
+  code{ background:rgba(255,255,255,.06); padding:.12em .45em; border-radius:6px; color:var(--accent);
+      font-family:ui-monospace,monospace; word-break:break-all; }
+  button{ width:100%; margin-top:26px; padding:15px; border:none; border-radius:11px; cursor:pointer;
+      font-family:inherit; font-weight:700; font-size:15px; letter-spacing:.02em;
+      background:linear-gradient(180deg,#9fe6da,#5cc3b4); color:#06140f; transition:filter .15s; }
+  button:hover{ filter:brightness(1.06); }
+  button:disabled{ opacity:.4; cursor:not-allowed; }
+  ol{ margin:0 0 8px 18px; color:var(--muted); font-size:13.5px; line-height:1.8; }
+  .result{ margin-top:26px; padding:20px; background:#0b1a16; border:1px solid rgba(127,208,196,.3); border-radius:12px; display:none; }
+  .result.show{ display:block; }
+  .result h2{ font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin-bottom:10px; }
+  .token{ font-family:ui-monospace,monospace; font-size:13px; background:#070b09; border:1px solid var(--line);
+      border-radius:9px; padding:13px; word-break:break-all; line-height:1.5; color:var(--text); }
+  .copy{ margin-top:12px; padding:10px; font-size:13px; }
+  .err{ color:#ff8d8d; font-size:13.5px; margin-top:16px; display:none; }
+  .err.show{ display:block; }
+  .divider{ height:1px; background:var(--line); margin:28px 0; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Spotify Token Helper</h1>
+    <p class="sub">One-time setup to get a refresh token for your Wallpaper Engine visualizer. Nothing is sent anywhere except Spotify — the exchange happens right here in your browser.</p>
+
+    <div id="setup">
+      <label>1 · Create a Spotify app</label>
+      <ol>
+        <li>Go to <code>developer.spotify.com/dashboard</code> and create an app.</li>
+        <li>In the app's settings, add this exact <b>Redirect URI</b>:</li>
+      </ol>
+      <div class="token" id="redirUri" style="font-size:12.5px"></div>
+      <p class="hint">Copy it verbatim — it must match exactly, trailing slash and all.</p>
+
+      <label>2 · Paste your Client ID</label>
+      <input id="clientId" placeholder="e.g. 4a1b2c3d..." autocomplete="off" spellcheck="false">
+      <p class="hint">Found on your app's dashboard page. It's saved locally so you won't have to re-enter it.</p>
+
+      <button id="authBtn">Authorize with Spotify</button>
+      <p class="err" id="err"></p>
+    </div>
+
+    <div class="result" id="result">
+      <h2>Your refresh token</h2>
+      <div class="token" id="refreshToken"></div>
+      <button class="copy" id="copyBtn">Copy refresh token</button>
+      <div class="divider"></div>
+      <p class="hint">Paste this token plus your Client ID into the wallpaper's <code>CONFIG</code> block (or into the WE text properties <code>spotifyrefreshtoken</code> / <code>spotifyclientid</code>). This token doesn't expire unless you revoke it.</p>
+    </div>
+  </div>
+
+<script>
+const SCOPES = "user-read-playback-state user-read-currently-playing";
+const REDIRECT = location.origin + location.pathname;   // must match the registered URI
+const $ = id => document.getElementById(id);
+const isHosted = location.origin && location.origin !== "null" && /^https?:$/.test(location.protocol);
+if (!isHosted){
+  $("redirUri").textContent = "\u26A0 You are viewing a preview or local copy of this page. Upload it to GitHub Pages and open it from your github.io link \u2014 this box will then show the exact Redirect URI to paste into Spotify.";
+  $("redirUri").style.color = "#ffcf8d";
+  $("authBtn").disabled = true;
+} else {
+  $("redirUri").textContent = REDIRECT;
+}
+$("clientId").value = localStorage.getItem("sp_client_id") || "";
+
+/* ---- PKCE helpers ---- */
+const rand = n => { const a=new Uint8Array(n); crypto.getRandomValues(a);
+  return Array.from(a,b=>"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"[b%66]).join(""); };
+async function challenge(verifier){
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function showErr(m){ const e=$("err"); e.textContent=m; e.classList.add("show"); }
+
+/* ---- step 1: kick off authorize ---- */
+$("authBtn").addEventListener("click", async ()=>{
+  const cid = $("clientId").value.trim();
+  if(!cid){ showErr("Enter your Client ID first."); return; }
+  localStorage.setItem("sp_client_id", cid);
+  const verifier = rand(64);
+  sessionStorage.setItem("sp_verifier", verifier);
+  sessionStorage.setItem("sp_cid", cid);
+  const params = new URLSearchParams({
+    response_type:"code", client_id:cid, scope:SCOPES,
+    redirect_uri:REDIRECT, code_challenge_method:"S256",
+    code_challenge: await challenge(verifier)
+  });
+  location.href = "https://accounts.spotify.com/authorize?"+params;
+});
+
+/* ---- step 2: handle the redirect back with ?code ---- */
+(async ()=>{
+  const p = new URLSearchParams(location.search);
+  if (p.get("error")){ showErr("Spotify returned: "+p.get("error")); history.replaceState({},"",REDIRECT); return; }
+  const code = p.get("code");
+  if (!code) return;
+
+  const verifier = sessionStorage.getItem("sp_verifier");
+  const cid = sessionStorage.getItem("sp_cid");
+  history.replaceState({},"",REDIRECT);   // strip the code from the address bar
+  if (!verifier || !cid){ showErr("Session expired — start the authorization again."); return; }
+
+  try{
+    const res = await fetch("https://accounts.spotify.com/api/token",{
+      method:"POST",
+      headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body:new URLSearchParams({
+        grant_type:"authorization_code", code, redirect_uri:REDIRECT,
+        client_id:cid, code_verifier:verifier
+      })
+    });
+    const d = await res.json();
+    if (!res.ok || !d.refresh_token){ showErr("Token exchange failed: "+(d.error_description||d.error||res.status)); return; }
+    $("setup").style.display="none";
+    $("refreshToken").textContent = d.refresh_token;
+    $("result").classList.add("show");
+  }catch(e){ showErr("Network error during token exchange: "+e.message); }
+})();
+
+$("copyBtn").addEventListener("click",()=>{
+  navigator.clipboard.writeText($("refreshToken").textContent);
+  $("copyBtn").textContent="Copied ✓";
+  setTimeout(()=>$("copyBtn").textContent="Copy refresh token",1500);
+});
+</script>
+</body>
+</html>
