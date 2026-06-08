@@ -68,7 +68,7 @@
   </div>
 
 <script>
-const SCOPES="user-read-playback-state user-read-currently-playing";
+const SCOPES="user-read-playback-state user-read-currently-playing user-modify-playback-state";
 const REDIRECT=location.origin+location.pathname;
 const $=id=>document.getElementById(id);
 const isHosted = location.origin && location.origin!=="null" && /^https?:$/.test(location.protocol);
